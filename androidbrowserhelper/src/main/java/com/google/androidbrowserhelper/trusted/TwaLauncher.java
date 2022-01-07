@@ -34,10 +34,6 @@ import androidx.browser.trusted.Token;
 import androidx.browser.trusted.TokenStore;
 import androidx.browser.trusted.TrustedWebActivityIntent;
 import androidx.browser.trusted.TrustedWebActivityIntentBuilder;
-import androidx.core.content.ContextCompat;
-
-import com.google.androidbrowserhelper.trusted.ChromeOsSupport;
-import com.google.androidbrowserhelper.trusted.splashscreens.SplashScreenStrategy;
 
 /**
  * Encapsulates the steps necessary to launch a Trusted Web Activity, such as establishing a
@@ -149,7 +145,7 @@ public class TwaLauncher {
      * @param url Url to open.
      */
     public void launch(Uri url) {
-        launch(new TrustedWebActivityIntentBuilder(url), new QualityEnforcer(), null, null, null);
+        launch(new TrustedWebActivityIntentBuilder(url), new QualityEnforcer(), null, null, null, null);
     }
 
 
@@ -170,14 +166,21 @@ public class TwaLauncher {
                        CustomTabsCallback customTabsCallback,
                        @Nullable SplashScreenStrategy splashScreenStrategy,
                        @Nullable Runnable completionCallback,
-                       FallbackStrategy fallbackStrategy) {
+                       FallbackStrategy fallbackStrategy,
+                       TrustedWebActivityIntentCallback intentReadyCallback) {
         if (mDestroyed) {
             throw new IllegalStateException("TwaLauncher already destroyed");
         }
 
         if (mLaunchMode == TwaProviderPicker.LaunchMode.TRUSTED_WEB_ACTIVITY) {
-            launchTwa(twaBuilder, customTabsCallback, splashScreenStrategy, completionCallback,
-                    fallbackStrategy);
+            launchTwa(
+                twaBuilder,
+                customTabsCallback,
+                splashScreenStrategy,
+                completionCallback,
+                fallbackStrategy,
+                intentReadyCallback
+            );
         } else {
             fallbackStrategy.launch(mContext, twaBuilder, mProviderPackage, completionCallback);
         }
@@ -208,20 +211,25 @@ public class TwaLauncher {
             @Nullable SplashScreenStrategy splashScreenStrategy,
             @Nullable Runnable completionCallback) {
         launch(twaBuilder, customTabsCallback, splashScreenStrategy, completionCallback,
-                CCT_FALLBACK_STRATEGY);
+                CCT_FALLBACK_STRATEGY, null);
     }
 
     private void launchTwa(TrustedWebActivityIntentBuilder twaBuilder,
             CustomTabsCallback customTabsCallback,
             @Nullable SplashScreenStrategy splashScreenStrategy,
             @Nullable Runnable completionCallback,
-            FallbackStrategy fallbackStrategy) {
+            FallbackStrategy fallbackStrategy,
+            @Nullable TrustedWebActivityIntentCallback intentCallback) {
         if (splashScreenStrategy != null) {
             splashScreenStrategy.onTwaLaunchInitiated(mProviderPackage, twaBuilder);
         }
 
-        Runnable onSessionCreatedRunnable = () ->
-                launchWhenSessionEstablished(twaBuilder, splashScreenStrategy, completionCallback);
+        Runnable onSessionCreatedRunnable = () -> launchWhenSessionEstablished(
+                twaBuilder,
+                splashScreenStrategy,
+                completionCallback,
+                intentCallback
+        );
 
         if (mSession != null) {
             onSessionCreatedRunnable.run();
@@ -246,22 +254,25 @@ public class TwaLauncher {
     }
 
     private void launchWhenSessionEstablished(TrustedWebActivityIntentBuilder twaBuilder,
-            @Nullable SplashScreenStrategy splashScreenStrategy,
-            @Nullable Runnable completionCallback) {
+                                              @Nullable SplashScreenStrategy splashScreenStrategy,
+                                              @Nullable Runnable completionCallback,
+                                              @Nullable TrustedWebActivityIntentCallback intentCallback) {
         if (mSession == null) {
             throw new IllegalStateException("mSession is null in launchWhenSessionEstablished");
         }
 
         if (splashScreenStrategy != null) {
             splashScreenStrategy.configureTwaBuilder(twaBuilder, mSession,
-                    () -> launchWhenSplashScreenReady(twaBuilder, completionCallback));
+                    () -> launchWhenSplashScreenReady(twaBuilder, completionCallback, intentCallback));
         } else {
-            launchWhenSplashScreenReady(twaBuilder, completionCallback);
+            launchWhenSplashScreenReady(twaBuilder, completionCallback, intentCallback);
         }
     }
 
-    private void launchWhenSplashScreenReady(TrustedWebActivityIntentBuilder builder,
-            @Nullable Runnable completionCallback) {
+    private void launchWhenSplashScreenReady(
+            TrustedWebActivityIntentBuilder builder,
+            @Nullable Runnable completionCallback,
+            TrustedWebActivityIntentCallback intentCallback) {
         if (mDestroyed || mSession == null) {
             return;  // Service was disconnected and / or TwaLauncher was destroyed while preparing
                      // the splash screen (e.g. user closed the app). See https://crbug.com/1052367
@@ -270,6 +281,9 @@ public class TwaLauncher {
         Log.d(TAG, "Launching Trusted Web Activity.");
         TrustedWebActivityIntent intent = builder.build(mSession);
         FocusActivity.addToIntent(intent.getIntent(), mContext);
+        if (intentCallback != null) {
+            intentCallback.onTrustedWebActivityIntentReady(intent);
+        }
         intent.launchTrustedWebActivity(mContext);
 
         if (completionCallback != null) {

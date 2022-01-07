@@ -225,7 +225,8 @@ public class LauncherActivity extends Activity {
                 mCustomTabsCallback,
                 mSplashScreenStrategy,
                 () -> mBrowserWasLaunched = true,
-                getFallbackStrategy());
+                getFallbackStrategy(),
+                null);
 
         if (!sChromeVersionChecked) {
             ChromeUpdatePrompt.promptIfNeeded(this, mTwaLauncher.getProviderPackage());
